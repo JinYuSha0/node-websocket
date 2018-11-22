@@ -7,7 +7,7 @@
 <body>
 <script>
 	if ('WebSocket' in window) {
-		const ws = new WebSocket('ws://localhost:9998/')
+		const ws = window.ws = new WebSocket('ws://localhost:9998/')
     ws.onopen = () => {
 		  console.log('连接')
       ws.send('send msg')
@@ -15,6 +15,10 @@
 
     ws.onmessage = (evt) => {
 		  console.log(evt.data)
+    }
+
+    ws.onclose = () => {
+      console.log('断开连接')
     }
 	}
 </script>

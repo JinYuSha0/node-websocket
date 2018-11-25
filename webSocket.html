@@ -11,10 +11,21 @@
     ws.onopen = () => {
 		  console.log('连接')
       ws.send('send msg')
+      ws.send('pic')
     }
 
     ws.onmessage = (evt) => {
-		  console.log(evt.data)
+		  if (Object.getPrototypeOf(evt.data) === String.prototype) {
+        console.log(evt.data)
+      } else {
+		    const fr = new FileReader()
+        fr.onload = (e) => {
+		      const img = new Image()
+          img.src = e.target.result
+          document.body.append(img)
+        }
+        fr.readAsDataURL(evt.data)
+      }
     }
 
     ws.onclose = () => {

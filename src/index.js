@@ -2,6 +2,7 @@ const net = require('net')
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const { IteratorQueue } = require('./utils')
 
 // websocket握手
 function webSocketHandShake(data, socket) {
@@ -180,6 +181,32 @@ function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) 
   })
 }
 
+const iteratorQueue = new IteratorQueue(function () {
+  const {value, done} = this.next()
+  if (!done) {
+    const { socket, data } = value
+    switch (data.PayloadData) {
+      case 'pic':
+        socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, '../static/pic.jpg')), 'image'), () => {
+          this.start.call(this)
+        })
+        break
+      case 'package':
+        socket.write(generateFrame('this is a package', 'text'), () => {
+          this.start.call(this)
+        })
+        break
+      default:
+        socket.write(generateFrame('Received: ' + data.PayloadData), () => {
+          this.start.call(this)
+        })
+        break
+    }
+  } else {
+    this.stop()
+  }
+})
+
 const server = net.createServer(socket => {
   socket.on('end', () => {
 		console.log('客户端关闭连接')
@@ -195,17 +222,8 @@ const server = net.createServer(socket => {
         socket.end()
         return
       }
-      switch (data.PayloadData) {
-        case 'pic':
-          socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, '../static/pic.jpg')), 'image'))
-          break
-        case 'package':
-          socket.write(generateFrame('this is a package', 'text'))
-          break
-        default:
-          socket.write(generateFrame('Received: ' + data.PayloadData))
-          break
-      }
+      // 队列
+      iteratorQueue.add({ socket, data })
     }
   })
 }).on('error', (err) => {

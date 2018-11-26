@@ -83,6 +83,14 @@
 
     ws.onopen = () => {
 		  console.log('连接')
+      ws.send('pic')
+      ws.send('this is a test message')
+      setTimeout(() => {
+        ws.send('package')
+      }, 10)
+      setTimeout(() => {
+        ws.send('pic')
+      }, 10)
     }
 
     ws.onmessage = async (evt) => {

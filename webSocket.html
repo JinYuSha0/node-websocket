@@ -88,6 +88,7 @@
     ws.onmessage = async (evt) => {
 		  if (Object.getPrototypeOf(evt.data) === Blob.prototype) {
         const type = await fr(evt.data.slice(0, 8))
+                        // 坑↓
         observer.publish(type.split('').map(v => v.match(/\w/)).join(''), evt.data.slice(8, evt.data.length))
       } else {
         console.log(evt.data)

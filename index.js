@@ -116,7 +116,7 @@ function decodeDataFrame(e) {
     s = e.slice(i, frame.PayloadLength)
   }
   s = Buffer.from(s)
-  if (frame.Opcode == 1) {
+  if (frame.Opcode === 1) {
     s = s.toString()
   }
   frame.PayloadData = s
@@ -201,7 +201,7 @@ const server = net.createServer(socket => {
           socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, './pic.jpg')), 'image'))
           break
         case 'package':
-          socket.write(generateFrame('this is a package', 'text'))
+          socket.write(generateFrame('this is a package', 'text')
           break
         default:
           socket.write(generateFrame('Received: ' + data.PayloadData))

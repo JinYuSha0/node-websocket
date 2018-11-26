@@ -115,7 +115,7 @@ function decodeDataFrame(e) {
   } else {
     s = e.slice(i, frame.PayloadLength)
   }
-  s = new Buffer(s)
+  s = Buffer.from(s)
   if (frame.Opcode == 1) {
     s = s.toString()
   }
@@ -125,19 +125,19 @@ function decodeDataFrame(e) {
 
 // 封装数据帧
 function encodeDataFrame(e) {
-  let i, s = [], o = e.PayloadData, l = o.length
+  let s = [], m = [], i, j, o = e.PayloadData, l = o.length
   s.push((e.FIN << 7) + (e.Opcode & 0xF))
   if (l < 126) {
-    s.push(l & 0x7F)
+    s.push((e.Mask >> 7) + (l & 0x7F))
   } else if (l < 0x10000) {
     s.push(
-      126 & 0x7F,
+      (e.Mask >> 7) + (126 & 0x7F),
       (l & 0xFF00) >> 8,
       l & 0xFF
     )
   } else {
     s.push(
-      127 & 0x7F,
+      (e.Mask >> 7) + (127 & 0x7F),
       0, 0, 0, 0,
       (l & 0xFF000000) >> 24,
       (l & 0xFF0000) >> 16,
@@ -145,23 +145,42 @@ function encodeDataFrame(e) {
       l & 0xFF
     )
   }
-  return Buffer.concat([new Buffer(s), o])
+  // 使用掩码
+  if (e.Mask) {
+    for (i = 0; i < 4; i++) {
+      m.push(Math.floor(Math.random()*255))
+    }
+    s.concat(m)
+    for (j = 0; j < l; j++) {
+      o[j] = o[j] ^ m[j % 4]
+    }
+  }
+  return Buffer.concat([Buffer.from(s), o])
 }
 
 // 生成数据帧
 //  A server must not mask any frames that it sends to the client.
-function generateFrame(PayloadData, Opcode = 1, FIN = 1) {
+function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) {
   if (!PayloadData) throw new Error('PayloadData is null')
+  const isBuffer = Object.getPrototypeOf(PayloadData) === Buffer.prototype
+  if (PayloadType) {
+    Opcode = 2
+    if (PayloadType.length > 8) {
+      throw new Error('PayloadType length should be less than 8!')
+    }
+  }
   return encodeDataFrame({
     FIN,
     Opcode,
-    Mask: 0,
-    PayloadData: Object.getPrototypeOf(PayloadData) === Buffer.prototype
-      ? PayloadData
-      : new Buffer(PayloadData),
+    Mask,
+    PayloadData: PayloadType
+      // 定义8个字节的长度储存数据类型 PayloadType
+      ? Buffer.concat([Buffer.concat([Buffer.from(PayloadType), Buffer.alloc(8 - PayloadType.length)]), isBuffer? PayloadData : Buffer.from(PayloadData)])
+      : isBuffer ? PayloadData : Buffer.from(PayloadData),
   })
 }
 
+// todo 需要一个队列处理收到的信息
 const server = net.createServer(socket => {
 	socket.on('end', () => {
 		console.log('客户端关闭连接')
@@ -179,7 +198,10 @@ const server = net.createServer(socket => {
       }
       switch (data.PayloadData) {
         case 'pic':
-          socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, './pic.jpg')), 2))
+          socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, './pic.jpg')), 'image'))
+          break
+        case 'package':
+          socket.write(generateFrame('this is a package', 'text'))
           break
         default:
           socket.write(generateFrame('Received: ' + data.PayloadData))

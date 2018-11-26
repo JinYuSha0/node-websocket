@@ -5,26 +5,92 @@
     <title>webSocket</title>
 </head>
 <body>
+<div class="button-group">
+  <button onclick="javascript:ws.send('pic')">获取图片</button>
+  <button onclick="javascript:ws.send('package')">获取二进制的text</button>
+</div>
 <script>
-	if ('WebSocket' in window) {
-		const ws = window.ws = new WebSocket('ws://localhost:9998/')
-    ws.onopen = () => {
-		  console.log('连接')
-      ws.send('send msg')
-      ws.send('pic')
+  function Publisher (subscribers) {
+    this.subscribers = subscribers || {}
+
+    // 订阅
+    Publisher.prototype.subscribe = (type, func) => {
+      if (!this.subscribers[type]) {
+        this.subscribers[type] = []
+      }
+      this.subscribers[type].push(func)
     }
 
-    ws.onmessage = (evt) => {
-		  if (Object.getPrototypeOf(evt.data) === String.prototype) {
-        console.log(evt.data)
+    // 取消订阅
+    Publisher.prototype.unsubscribe = (type, func) => {
+      const index = this.subscribers[type].indexOf(func)
+      if (index > -1) {
+        this.subscribers[type].slice(index, 1)
+      }
+    }
+
+    // 发布
+    Publisher.prototype.publish = (type, publication) => {
+      if (!this.subscribers[type] || this.subscribers[type].length <= 0) return
+      this.subscribers[type].forEach(f => {
+        f(publication)
+      })
+    }
+  }
+  const observer = new Publisher()
+  function fr (blob, type) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = (e) => {
+        resolve(e.target.result)
+      }
+      fr.onerror = (err) => {
+        reject(err)
+      }
+      switch (type) {
+        case 'dataUrl':
+          fr.readAsDataURL(blob)
+          break
+        case 'arrayBuffer':
+          fr.readAsArrayBuffer(blob)
+          break
+        case 'binaryString':
+          fr.readAsBinaryString(blob)
+          break
+        default:
+          fr.readAsText(blob, 'utf8')
+          break
+      }
+    })
+  }
+  const imageHandler = async (blob) => {
+    const src = await fr(blob, 'dataUrl')
+    const image = new Image()
+    image.src = src
+    document.body.append(image)
+  }
+  const textHandler = async (blob) => {
+    const text = await fr(blob)
+    const div = document.createElement('div')
+    div.innerText = text
+    document.body.append(div)
+  }
+  observer.subscribe('image', imageHandler)
+  observer.subscribe('text', textHandler)
+
+	if ('WebSocket' in window) {
+		const ws = window.ws = new WebSocket('ws://localhost:9998/')
+
+    ws.onopen = () => {
+		  console.log('连接')
+    }
+
+    ws.onmessage = async (evt) => {
+		  if (Object.getPrototypeOf(evt.data) === Blob.prototype) {
+        const type = await fr(evt.data.slice(0, 8))
+        observer.publish(type.split('').map(v => v.match(/\w/)).join(''), evt.data.slice(8, evt.data.length))
       } else {
-		    const fr = new FileReader()
-        fr.onload = (e) => {
-		      const img = new Image()
-          img.src = e.target.result
-          document.body.append(img)
-        }
-        fr.readAsDataURL(evt.data)
+        console.log(evt.data)
       }
     }
 

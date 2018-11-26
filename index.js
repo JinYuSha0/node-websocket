@@ -172,6 +172,11 @@ const server = net.createServer(socket => {
       webSocketHandShake(data, socket)
     } else {
       data = decodeDataFrame(data)
+      // Opcode为8表示断开连接
+      if (data.Opcode === 8) {
+        socket.end()
+        return
+      }
       switch (data.PayloadData) {
         case 'pic':
           socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, './pic.jpg')), 2))
@@ -183,7 +188,7 @@ const server = net.createServer(socket => {
     }
   })
 }).on('error', (err) => {
-  throw err
+  console.error(err)
 })
 
 server.listen(9998, () => {

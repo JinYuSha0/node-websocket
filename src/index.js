@@ -180,9 +180,8 @@ function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) 
   })
 }
 
-// todo 需要一个队列处理收到的信息
 const server = net.createServer(socket => {
-	socket.on('end', () => {
+  socket.on('end', () => {
 		console.log('客户端关闭连接')
 	})
 
@@ -198,10 +197,10 @@ const server = net.createServer(socket => {
       }
       switch (data.PayloadData) {
         case 'pic':
-          socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, './pic.jpg')), 'image'))
+          socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, '../static/pic.jpg')), 'image'))
           break
         case 'package':
-          socket.write(generateFrame('this is a package', 'text')
+          socket.write(generateFrame('this is a package', 'text'))
           break
         default:
           socket.write(generateFrame('Received: ' + data.PayloadData))

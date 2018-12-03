@@ -78,26 +78,34 @@
   observer.subscribe('image', imageHandler)
   observer.subscribe('text', textHandler)
 
+  WebSocket.prototype.sendBlob = function (PayloadType, PayloadData) {
+    if (!PayloadType) throw new Error('type is null!')
+    if (PayloadType.length !== 8) {
+      if (PayloadType.length < 8) {
+        const repair = 8 - PayloadType.length
+        for (let i = 0; i < repair; i++) {
+          PayloadType += ' '
+        }
+      } else {
+        throw new Error('type length should be less 8!')
+      }
+    }
+    ws.send(new Blob([PayloadType, PayloadData]))
+  }
+
 	if ('WebSocket' in window) {
 		const ws = window.ws = new WebSocket('ws://localhost:9998/')
 
     ws.onopen = () => {
 		  console.log('连接')
-      ws.send('pic')
-      ws.send('this is a test message')
-      setTimeout(() => {
-        ws.send('package')
-      }, 10)
-      setTimeout(() => {
-        ws.send('pic')
-      }, 10)
+      // ws.send('pic')
+      ws.sendBlob('pic', '123456')
     }
 
     ws.onmessage = async (evt) => {
 		  if (Object.getPrototypeOf(evt.data) === Blob.prototype) {
         const type = await fr(evt.data.slice(0, 8))
-                        // 坑↓
-        observer.publish(type.split('').map(v => v.match(/\w/)).join(''), evt.data.slice(8, evt.data.length))
+        observer.publish(type.trim(), evt.data.slice(8, evt.data.length))
       } else {
         console.log(evt.data)
       }

@@ -25,18 +25,9 @@ function IteratorQueue(handler) {
     return this.iterator.next()
   }
 
-//   究极蛇皮迭代器队列 demo
-//   const queue = window.queue = new Queue(function () {
-//   const {value, done} = this.next()
-//   if (!done) {
-//     console.log(value)
-//     setTimeout(() => {
-//       this.start()
-//     }, 2000)
-//   } else {
-//     this.stop()
-//   }
-// })
+  IteratorQueue.prototype.callback = function () {
+    this.start()
+  }
 }
 
 module.exports = {

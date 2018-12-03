@@ -1,7 +1,6 @@
 const net = require('net')
 const crypto = require('crypto')
-const fs = require('fs')
-const path = require('path')
+const handler = require('./handler')
 const { IteratorQueue } = require('./utils')
 
 // websocket握手
@@ -32,64 +31,6 @@ function webSocketHandShake(data, socket) {
   // 标识websocket已建立连接
   socket._webSocketConnect = true
 }
-
-// https://juejin.im/entry/5a012eab518825297a0e27f0
-
-// 0                   1                   2                   3
-// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-// +-+-+-+-+-------+-+-------------+-------------------------------+
-// |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
-// |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
-// |N|V|V|V|       |S|             |   (if payload len==126/127)   |
-// | |1|2|3|       |K|             |                               |
-// +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-// |     Extended payload length continued, if payload len == 127  |
-// + - - - - - - - - - - - - - - - +-------------------------------+
-// |                               |Masking-key, if MASK set to 1  |
-// +-------------------------------+-------------------------------+
-// | Masking-key (continued)       |          Payload Data         |
-// +-------------------------------- - - - - - - - - - - - - - - - +
-// :                     Payload Data continued ...                :
-// + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-// |                     Payload Data continued ...                |
-// +---------------------------------------------------------------+
-
-
-// |Opcode  | Meaning                             | Reference |
-// -+--------+-------------------------------------+-----------|
-// | 0      | Continuation Frame                  | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-// | 1      | Text Frame                          | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-// | 2      | Binary Frame                        | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-// | 8      | Connection Close Frame              | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-// | 9      | Ping Frame                          | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-// | 10     | Pong Frame                          | RFC 6455  |
-// -+--------+-------------------------------------+-----------|
-
-
-// 为什么要这么解析？
-// Unit8Array 8位无符号整数值的类型化数组
-// 分析第一位字节 e[0] 二进制
-// binary Number.prototype.toString.call(e[0], 2)
-// 第一位字节十进制为129 二进制为 10000001
-// 右移：按二进制形式把所有的数字向右移动对应位移位数，低位移出(舍弃)，高位的空位补符号位，即正数补零，负数补1。
-// FIN flag 取第一位所以右移7取到第一位 10000001 右移7 00000001
-// &是"与"运算符：同时为1才得1，一个为0就为0 eg：1111 & 0011 = 0011
-// Opcode &15 15的8位二进制为00001111 代表取后面4位 10000001 & 00001111 = 0001
-// PayloadLength 为第二个字节的后7位 &01111111 | &127 | &0x7F
-// websocket划分了三个数据传输界限，PayloadLength 7个bit 最多表示 127byte，有时候这不够用，所以有了拓展PayloadLength
-// 当PayloadLength为126时 用2byte表示扩展长度 最大表示65535byte 约等于64kb
-// 当PayloadLength为127时 用4byte表示扩展长度 最大表示4294967295byte 等于4gb
-// 因此websocket一个数据帧传输数据的最大限制是4gb
-// (e[i++] << 8) +  e[i++] 左移是用来将多个字节的数据拼接在一起
-// eg: 1111111100000000 + 11111110 = 11111111 11111110
-// 掩码
-// ^是异或运算符 如果对应为中任一个操作数是1那结果就是1，如果两个操作数是1那么结果是0
-// eg: 000000001 ^ 00000011 = 00000010
 
 // 解析数据帧
 function decodeDataFrame(e) {
@@ -160,14 +101,20 @@ function encodeDataFrame(e) {
 }
 
 // 生成数据帧
-//  A server must not mask any frames that it sends to the client.
+//  should be set Mask = 0, A server must not mask any frames that it sends to the client.
 function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) {
   if (!PayloadData) throw new Error('PayloadData is null')
   const isBuffer = Object.getPrototypeOf(PayloadData) === Buffer.prototype
   if (PayloadType) {
     Opcode = 2
+    if (!PayloadType || !PayloadData) throw new Error('PayloadType or PayloadData is null!')
     if (PayloadType.length > 8) {
       throw new Error('PayloadType length should be less than 8!')
+    } else if (PayloadType.length < 8) {
+      const repair = 8 - PayloadType.length
+      for (let i = 0; i < repair; i++) {
+        PayloadType += ' '
+      }
     }
   }
   return encodeDataFrame({
@@ -176,60 +123,56 @@ function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) 
     Mask,
     PayloadData: PayloadType
       // 定义8个字节的长度储存数据类型 PayloadType
-      ? Buffer.concat([Buffer.concat([Buffer.from(PayloadType), Buffer.alloc(8 - PayloadType.length)]), isBuffer? PayloadData : Buffer.from(PayloadData)])
+      ? Buffer.concat([Buffer.from(PayloadType), isBuffer? PayloadData : Buffer.from(PayloadData)])
       : isBuffer ? PayloadData : Buffer.from(PayloadData),
   })
 }
 
-const iteratorQueue = new IteratorQueue(function () {
-  const {value, done} = this.next()
-  if (!done) {
-    const { socket, data } = value
-    switch (data.PayloadData) {
-      case 'pic':
-        socket.write(generateFrame(fs.readFileSync(path.resolve(__dirname, '../static/pic.jpg')), 'image'), () => {
-          this.start.call(this)
-        })
-        break
-      case 'package':
-        socket.write(generateFrame('this is a package', 'text'), () => {
-          this.start.call(this)
-        })
-        break
-      default:
-        socket.write(generateFrame('Received: ' + data.PayloadData), () => {
-          this.start.call(this)
-        })
-        break
-    }
-  } else {
-    this.stop()
-  }
-})
+module.exports = (port, handlers) => {
+  if (!port) throw new Error('port is null!')
+  if (!handlers) throw new Error('handlers is null')
 
-const server = net.createServer(socket => {
-  socket.on('end', () => {
-		console.log('客户端关闭连接')
-	})
+  const myHandler = handler(handlers)
 
-  socket.on('data', (data) => {
-    if (!socket._webSocketConnect) {
-      webSocketHandShake(data, socket)
-    } else {
-      data = decodeDataFrame(data)
-      // Opcode为8表示断开连接
-      if (data.Opcode === 8) {
-        socket.end()
-        return
+  const iteratorQueue = new IteratorQueue(function () {
+    const {value, done} = this.next()
+    if (!done) {
+      const { socket, data } = value
+      try {
+        myHandler(socket, data, this.callback.bind(this), generateFrame, encodeDataFrame)
+      } catch (err) {
+        console.error(err)
+        this.callback()
       }
-      // 队列
-      iteratorQueue.add({ socket, data })
+    } else {
+      this.stop()
     }
   })
-}).on('error', (err) => {
-  console.error(err)
-})
 
-server.listen(9998, () => {
-	console.log('server is listening')
-})
+  const server = net.createServer(socket => {
+    socket.on('end', () => {
+      console.log('客户端关闭连接')
+    })
+
+    socket.on('data', (data) => {
+      if (!socket._webSocketConnect) {
+        webSocketHandShake(data, socket)
+      } else {
+        // Opcode为8表示断开连接
+        if (data.Opcode === 8) {
+          socket.end()
+          return
+        }
+        data = decodeDataFrame(data)
+        // 队列
+        iteratorQueue.add({ socket, data })
+      }
+    })
+  })
+
+  server.listen(port, () => {
+    console.log(`server is listening in port: ${port}`)
+  })
+
+  return server
+}

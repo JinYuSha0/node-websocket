@@ -6,8 +6,8 @@
 </head>
 <body>
 <div class="button-group">
-  <button onclick="javascript:ws.send('pic')">获取图片</button>
-  <button onclick="javascript:ws.send('package')">获取二进制的text</button>
+  <button onclick="javascript:ws.sendBlob('pic')">获取图片</button>
+  <button onclick="javascript:ws.sendBlob('package')">获取二进制的text</button>
 </div>
 <script>
   function Publisher (subscribers) {
@@ -98,8 +98,6 @@
 
     ws.onopen = () => {
 		  console.log('连接')
-      // ws.send('pic')
-      ws.sendBlob('pic', '123456')
     }
 
     ws.onmessage = async (evt) => {

@@ -1,7 +1,6 @@
 const net = require('net')
 const crypto = require('crypto')
 const handler = require('./handler')
-const { IteratorQueue } = require('./utils')
 
 // websocket握手
 function webSocketHandShake(data, socket) {
@@ -105,6 +104,7 @@ function encodeDataFrame(e) {
 function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) {
   if (!PayloadData) throw new Error('PayloadData is null')
   const isBuffer = Object.getPrototypeOf(PayloadData) === Buffer.prototype
+  if (isBuffer) Opcode = 2
   if (PayloadType) {
     Opcode = 2
     if (!PayloadType || !PayloadData) throw new Error('PayloadType or PayloadData is null!')
@@ -134,21 +134,6 @@ module.exports = (port, handlers) => {
 
   const myHandler = handler(handlers)
 
-  const iteratorQueue = new IteratorQueue(function () {
-    const {value, done} = this.next()
-    if (!done) {
-      const { socket, data } = value
-      try {
-        myHandler(socket, data, this.callback.bind(this), generateFrame, encodeDataFrame)
-      } catch (err) {
-        console.error(err)
-        this.callback()
-      }
-    } else {
-      this.stop()
-    }
-  })
-
   const server = net.createServer(socket => {
     socket.on('end', () => {
       console.log('客户端关闭连接')
@@ -164,8 +149,7 @@ module.exports = (port, handlers) => {
           return
         }
         data = decodeDataFrame(data)
-        // 队列
-        iteratorQueue.add({ socket, data })
+        myHandler(socket, data, generateFrame, encodeDataFrame)
       }
     })
   })

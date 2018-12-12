@@ -1,14 +1,10 @@
-const net = require('net')
 const crypto = require('crypto')
 const handler = require('./handler')
 
 // websocket握手
-function webSocketHandShake(data, socket) {
+function webSocketHandShake(secWebSocketKey, socket) {
   // 这是算法中要用到的固定字符串
   const MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-  // 获取请求内容中的Sec-WebSocket-Key
-  const secWebSocketKeyMatch = data.toString().match(/Sec-WebSocket-Key:\s?(\S*)\r\n/i)
-  const secWebSocketKey = secWebSocketKeyMatch ? secWebSocketKeyMatch[1] : null
   // 如果没有这个头 断开tcp连接
   if (secWebSocketKey == null) {
     socket.end()
@@ -27,8 +23,6 @@ function webSocketHandShake(data, socket) {
     'Access-Control-Allow-Headers: content-type\n' +
     `Sec-WebSocket-Accept: ${secWebSocketAccept}\r\n\r\n`
   socket.write(handShakePackage)
-  // 标识websocket已建立连接
-  socket._webSocketConnect = true
 }
 
 // 解析数据帧
@@ -128,35 +122,68 @@ function generateFrame(PayloadData, PayloadType, Opcode = 1, Mask = 0, FIN = 1) 
   })
 }
 
-module.exports = (port, handlers) => {
-  if (!port) throw new Error('port is null!')
-  if (!handlers) throw new Error('handlers is null')
+// 添加/移除事件
+function addListeners(server, map) {
+  for (const event of Object.keys(map)) server.on(event, map[event])
 
+  return function removeListeners() {
+    for (const event of Object.keys(map)) {
+      server.removeListener(event, map[event])
+    }
+  }
+}
+
+// upgrade订阅方法
+function handleUpgrade (req, socket, head, successFunc) {
+  socket.on('error', () => { socket.destroy() })
+
+  const version = +req.headers['sec-websocket-version']
+
+  // 判断是否应该握手
+  if (
+    req.method !== 'GET' ||
+    req.headers.upgrade.toLowerCase() !== 'websocket' ||
+    !req.headers['sec-websocket-key'] ||
+    (version !== 8 && version !== 13)
+  ) {
+    return socket.end()
+  }
+
+  // 完成握手
+  webSocketHandShake(req.headers['sec-websocket-key'], socket)
+
+  successFunc(socket)
+}
+
+// 完成连接
+function completeUpgrade (socket, handlers) {
   const myHandler = handler(handlers)
 
-  const server = net.createServer(socket => {
-    socket.on('end', () => {
-      console.log('客户端关闭连接')
-    })
-
-    socket.on('data', (data) => {
-      if (!socket._webSocketConnect) {
-        webSocketHandShake(data, socket)
-      } else {
-        // Opcode为8表示断开连接
-        if (data.Opcode === 8) {
-          socket.end()
-          return
-        }
-        data = decodeDataFrame(data)
-        myHandler(socket, data, generateFrame, encodeDataFrame)
-      }
-    })
+  socket.on('end', () => {
+    console.log('客户端关闭连接')
   })
 
-  server.listen(port, () => {
-    console.log(`server is listening in port: ${port}`)
+  socket.on('data', (data) => {
+    // Opcode为8表示断开连接
+    if (data.Opcode === 8) {
+      socket.end()
+      return
+    }
+    data = decodeDataFrame(data)
+    myHandler(socket, data, generateFrame, encodeDataFrame)
   })
+}
 
-  return server
+module.exports = (server, handlers) => {
+  if (!server) throw new Error('server is null!')
+  if (!handlers) throw new Error('handlers is null')
+
+  this._removeListeners = addListeners(server, {
+    // add upgrade event handler
+    upgrade: (req, socket, head) => {
+      handleUpgrade(req, socket, head, (socket) => {
+        completeUpgrade(socket, handlers)
+      })
+    }
+  })
 }

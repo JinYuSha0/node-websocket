@@ -1,55 +1,29 @@
 const EventEmitter = require('events')
 
+const SWebSocket = Symbol('websocket')
 const readyStates = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED']
 
 class WebSocket extends EventEmitter {
-  constructor (socket, head) {
+  constructor (socket, head, req) {
     super()
 
     this._socket = socket
+    this._req = req
     this.readyState = WebSocket.CONNECTING
 
     socket.setTimeout(0)
     socket.setNoDelay()
+    socket[SWebSocket] = this
 
     if (head.length > 0) { socket.unshift(head) }
 
     socket.on('close', socketOnClose)
-    socket.on('data', )
+    socket.on('data', socketOnData)
     socket.on('end', socketOnEnd)
-    socket.on('error', )
+    // socket.on('error', )
 
     this.readyState = WebSocket.OPEN
     this.emit('open')
-
-    // socket.on('end', () => {
-    //   console.log('客户端关闭连接')
-    // })
-		//
-    // socket.on('data', (data) => {
-    //   // Opcode为8表示断开连接
-    //   if (data.Opcode === 8) {
-    //     socket.destroy()
-    //     return
-    //   }
-    //   data = this.decodeDataFrame(data)
-    // })
-  }
-
-  get CONNECTING () {
-    return WebSocket.CONNECTING
-  }
-
-  get OPEN () {
-    return WebSocket.OPEN
-  }
-
-  get CLOSING () {
-    return WebSocket.CLOSING
-  }
-
-  get CLOSED () {
-    return CLOSED
   }
 
   emitClose () {
@@ -57,6 +31,30 @@ class WebSocket extends EventEmitter {
 
     if (this._socket) {
       this.emit('close')
+    }
+  }
+
+  send (data, options = {}, cb) {
+    const { PayloadType, Opcode, Mask, Fin } = options
+    const frame = this.generateFrame(data, PayloadType, Opcode, Mask, Fin)
+    if (this._socket) {
+      this._socket.write(frame, cb)
+    }
+  }
+
+  close () {
+    if (this.readyState === WebSocket.CLOSED) return
+
+    this.readyState = WebSocket.CLOSING
+    this._socket.end()
+    this._socket.destroy()
+  }
+
+  terminate () {
+    if (this.readyState === WebSocket.CLOSED) return
+    if (this._socket) {
+      this.readyState = WebSocket.CLOSING
+      this._socket.destroy()
     }
   }
 
@@ -146,7 +144,7 @@ class WebSocket extends EventEmitter {
         }
       }
     }
-    return encodeDataFrame({
+    return this.encodeDataFrame({
       FIN,
       Opcode,
       Mask,
@@ -159,25 +157,46 @@ class WebSocket extends EventEmitter {
 }
 
 readyStates.forEach((readyStates, i) => {
-  WebSocket[readyStates[i]] = i
+  WebSocket[readyStates] = i
 })
 
 function socketOnClose() {
-  const websocket = this[Symbol('websocket')]
+  const websocket = this[SWebSocket]
 
   this.removeListener('close', socketOnClose)
   this.removeListener('end', socketOnEnd)
 
   websocket.readyState = WebSocket.CLOSING
 
+  this.removeListener('data', socketOnData)
+  this[SWebSocket] = undefined
+
   websocket.emitClose()
 }
 
 function socketOnEnd () {
-  const websocket = this[Symbol('websocket')]
+  const websocket = this[SWebSocket]
 
   websocket.readyState = WebSocket.CLOSING
 
+  this.end()
+}
+
+function socketOnData (chunk) {
+  const websocket = this[SWebSocket]
+
+  const { FIN, Opcode, Mask, PayloadLength, MaskingKey, PayloadData } = websocket.decodeDataFrame(chunk)
+
+  switch (Opcode) {
+    case 1:
+      websocket.emit(PayloadData.toString())
+      break
+    case 2:
+      const PayloadType = PayloadData.slice(0, 8).toString().trim()
+      const Data = PayloadData.slice(8, PayloadLength).toString()
+      websocket.emit(PayloadType, Data)
+      break
+  }
 }
 
 module.exports = WebSocket

@@ -45,6 +45,18 @@ class WebSocketServer extends EventEmitter {
     process.nextTick(emitClose, this)
   }
 
+  // 广播所有人
+  broadcast (data, options, cb) {
+    this.clients.forEach(client => {
+      client.send(data, options, cb)
+    })
+  }
+
+  // 获取所有用户
+  getClients () {
+    return this.clients
+  }
+
   // 判断是否要升级成websocket协议
   handleUpgrade (req, socket, head, successFunc) {
     socket.on('error', socketOnError)
@@ -68,7 +80,7 @@ class WebSocketServer extends EventEmitter {
     this.webSocketHandShake(req.headers['sec-websocket-key'], socket)
     socket.removeListener('error', socketOnError)
 
-    const ws = new WebSocket(socket, head)
+    const ws = new WebSocket(socket, head, req)
     if (this.clients) {
       this.clients.add(ws)
       ws.on('close', () => this.clients.delete(ws))

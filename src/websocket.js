@@ -58,6 +58,35 @@ class WebSocket extends EventEmitter {
     }
   }
 
+  ping () {
+    // 注：Ping帧中可能会携带数据
+    // 注：在收到Ping帧后，端点必须发送Pong帧响应，除非已经收到了Close帧。在实际中应尽可能快的响应。
+    if (this.readyState !== WebSocket.OPEN) {
+      const err = new Error(
+        `WebSocket is not open: readyState ${this.readyState} ` +
+        `(${readyStates[this.readyState]})`
+      )
+
+      throw err
+    }
+
+    this.send('1', { Opcode: 0x9 })
+  }
+
+  pong (data) {
+    // 注：在响应Ping帧的的Pong帧中，必须携和被响应的Ping帧中相同的数据。
+    if (this.readyState !== WebSocket.OPEN) {
+      const err = new Error(
+        `WebSocket is not open: readyState ${this.readyState} ` +
+        `(${readyStates[this.readyState]})`
+      )
+
+      throw err
+    }
+
+    this.send(data, { Opcode: 0xA })
+  }
+
   // 解析数据帧
   decodeDataFrame (e) {
     let i = 0, j, s, frame = {
@@ -195,6 +224,9 @@ function socketOnData (chunk) {
       const PayloadType = PayloadData.slice(0, 8).toString().trim()
       const Data = PayloadData.slice(8, PayloadLength).toString()
       websocket.emit(PayloadType, Data)
+      break
+    case 0x9: // Ping
+      websocket.pong(PayloadData)
       break
   }
 }
